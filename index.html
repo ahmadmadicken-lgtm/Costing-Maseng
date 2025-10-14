@@ -1,10 +1,615 @@
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
-  <title>Contoh Link</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kalkulator Biaya Acara (Costing)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f7f7;
+            display: flex;
+            justify-content: center;
+            padding: 10px;
+        }
+        .container {
+            max-width: 900px;
+            width: 100%;
+            background: white;
+            padding: 1.5rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+        @media (min-width: 640px) {
+            .container {
+                padding: 2rem;
+            }
+        }
+        input[type="number"], input[type="text"], select {
+            border: 1px solid #ccc;
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            width: 100%;
+            transition: all 0.2s;
+        }
+        input[type="number"]:focus, input[type="text"]:focus, select:focus {
+            border-color: #10b981;
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+        }
+        .category-toggle {
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s;
+        }
+        .category-toggle:hover {
+            background-color: #f3f4f6;
+        }
+        .category-toggle.active {
+            border-color: #059669;
+            background-color: #d1fae5;
+            box-shadow: 0 0 0 1px #059669;
+        }
+        .section-header {
+            font-weight: 700;
+            color: #065f46;
+        }
+        .final-summary-table {
+            border-collapse: separate;
+            border-spacing: 0;
+            width: 100%;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+        }
+        .final-summary-table td {
+            padding: 1rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .final-summary-table tr:last-child td {
+            border-bottom: none;
+        }
+        
+        /* Mobile-specific adjustments for tables */
+        @media (max-width: 639px) {
+            .min-w-full th, .min-w-full td {
+                padding: 0.5rem 0.6rem;
+                font-size: 0.7rem; /* Slightly smaller font for more space */
+            }
+            /* Ensure text in the main summary table wraps */
+            .final-summary-table td {
+                padding: 0.75rem;
+                font-size: 0.875rem;
+            }
+            .final-summary-table .font-extrabold {
+                font-size: 1rem; /* Maintain boldness */
+            }
+            /* Adjust padding for HPP total display */
+            .hpp-total-display {
+                padding: 0.75rem;
+            }
+            .hpp-total-display .text-3xl {
+                font-size: 1.75rem; /* Smaller font for total cost */
+            }
+        }
+    </style>
+    <script>
+        // Fungsi untuk format angka ke Rupiah
+        const formatRupiah = (number) => {
+            return new Intl.NumberFormat('id-ID', {
+                style: 'currency',
+                currency: 'IDR',
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0
+            }).format(number);
+        };
+
+        // Fungsi untuk membersihkan nilai Rupiah menjadi angka polos (tanpa Rp, tanpa titik, ganti koma dengan titik untuk desimal)
+        const cleanRupiah = (formattedValue) => {
+            return formattedValue.replace(/[^0-9,-]/g, '').replace(/\./g, '').replace(/,/g, '.');
+        };
+
+        // Fungsi untuk pembulatan ke puluhan ribu terdekat ke atas
+        const roundUpToNearestTenK = (number) => {
+            return Math.ceil(number / 10000) * 10000;
+        };
+        
+        // Fungsi unduhan dinonaktifkan
+        function downloadCostingAsCSV(pax, days, nights, results, financialData) {
+            console.log("Fungsi unduhan dinonaktifkan.");
+        }
+
+
+        const priceList = {
+            // Kategori: MEALS (Per person)
+            'Welcoming Snack & Drink': { price: 5000, unit: 'person', multiplier: '1', category: 'MEALS' }, // Diperbaiki: 5000/person, 1x per event
+            'Makan Malam': { price: 18000, unit: 'person', multiplier: 'N', category: 'MEALS' }, // N times (Nights)
+            'Snack Malam & Teh & Kopi': { price: 5000, unit: 'person', multiplier: 'N', category: 'MEALS' }, // N times (Nights)
+            'Breakfast': { price: 12000, unit: 'person', multiplier: 'N', category: 'MEALS' }, // N times (Nights)
+            'Makan Siang': { price: 18000, unit: 'person', multiplier: 'N', category: 'MEALS' }, // N times (Nights)
+            
+            // Kategori: CAMPING (Per unit)
+            'Tenda, Matras, Sleeping Bag': { price: 160000, capacity: 5, unit: 'unit', category: 'CAMPING' }, // / 5 person
+
+            // Kategori: RAFTING (Kompleks)
+            'Sewa Perahu': { price: 200000, capacity: 6, unit: 'unit_boat', category: 'RAFTING' }, // / 6 person (for B)
+            'Program Officer/Hospitality': { price: 130000, unit: 'fixed', category: 'RAFTING' }, // Always 1
+            'Guide': { price: 130000, unit: 'perahu', category: 'RAFTING' }, // / perahu (B units)
+            'Rescue': { price: 130000, unit: 'unit_rescue', category: 'RAFTING' }, // Custom logic (R units)
+            'Pick up': { price: 110000, capacity: 12, unit: 'unit', category: 'RAFTING' }, // / 12 person
+            'Porter': { price: 11000, unit: 'perahu', category: 'RAFTING' }, // Diperbaiki: 11000/perahu
+            'Parkir': { price: 10000, capacity: 6, unit: 'unit', category: 'RAFTING' }, // / 6 person
+            'Snack & Kelapa Muda': { price: 12000, unit: 'person', category: 'RAFTING' }, // / person
+        };
+        
+        let currentFinancialData = {};
+        let currentResultsData = {};
+
+        // Fungsi utama untuk menghitung biaya
+        function calculateCost() {
+            const pax = parseInt(document.getElementById('pax').value) || 0;
+            const days = parseInt(document.getElementById('days').value) || 0;
+            const nights = parseInt(document.getElementById('nights').value) || 0;
+
+            const includeMeals = document.getElementById('include-meals').checked;
+            const includeCamping = document.getElementById('include-camping').checked;
+            const includeRafting = document.getElementById('include-rafting').checked;
+
+            const outputDiv = document.getElementById('output');
+            const breakdownDiv = document.getElementById('breakdown');
+            const financialSummaryDiv = document.getElementById('financial-summary');
+            const errorDiv = document.getElementById('error-message');
+
+            outputDiv.classList.add('hidden');
+            breakdownDiv.innerHTML = '';
+            financialSummaryDiv.innerHTML = '';
+            errorDiv.textContent = '';
+
+            if (pax <= 0 || days <= 0 || nights < 0 || days <= nights) {
+                errorDiv.textContent = 'Harap masukkan jumlah peserta (pax > 0), durasi hari (D > 0), dan pastikan Hari > Malam.';
+                return;
+            }
+
+            let totalCost = 0;
+            const results = {
+                MEALS: { subtotal: 0, items: [], title: 'MEALS' },
+                CAMPING: { subtotal: 0, items: [], title: 'CAMPING' },
+                RAFTING: { subtotal: 0, items: [], title: 'RAFTING & MISCELLANEOUS' },
+            };
+
+            // --- 1. RAFTING/UNIT CALCULATION (Needed for Guide/Rescue) ---
+            
+            // B = Guide count (1 guide per boat, max 6 customers/boat)
+            const boatCount = Math.ceil(pax / 6); 
+            let rescueCount;
+            
+            // Check if pax is one of the special cases: 6, 11, 16, 21, ... (P = 5k + 1 for k >= 1)
+            const isFiveKPlusOne = (pax >= 6) && ((pax - 1) % 5 === 0);
+
+            // --- LOGIKA RESCUE ---
+            if (boatCount === 1) {
+                if (isFiveKPlusOne) {
+                    // P=6 (B=1): Rescue = 0
+                    rescueCount = 0; 
+                } else {
+                    // P=1..5 (B=1): Rescue = 1 
+                    rescueCount = 1;
+                }
+            } else if (boatCount > 1) {
+                // B=2 -> R=1, B=3 -> R=2, etc.
+                rescueCount = boatCount - 1;
+            } else {
+                rescueCount = 0; 
+            }
+            // --- END LOGIKA RESCUE ---
+            
+            // Ensure non-negative rescue count
+            if (rescueCount < 0) rescueCount = 0;
+
+            // --- 2. COST CALCULATION (HPP) ---
+            
+            for (const itemKey in priceList) {
+                const item = priceList[itemKey];
+                let itemCost = 0;
+                let unitCount = 0;
+                const category = item.category;
+
+                
+                // Skip if category not included
+                if (category === 'MEALS' && !includeMeals) continue;
+                if (category === 'CAMPING' && !includeCamping) continue;
+                if (category === 'RAFTING' && !includeRafting) continue; 
+
+                if (category === 'MEALS') {
+                    // Meals calculation based on multiplier
+                    let timeMultiplier = 0;
+                    if (item.multiplier === '1') timeMultiplier = 1; // Welcoming Snack (1x)
+                    else if (item.multiplier === 'N') timeMultiplier = nights; // Other meals (Nights)
+                    else if (item.multiplier === 'D') timeMultiplier = days; 
+
+                    unitCount = pax * timeMultiplier;
+                    itemCost = item.price * unitCount;
+                    results[category].items.push({ 
+                        name: itemKey, 
+                        price: item.price, 
+                        pax: pax, 
+                        times: timeMultiplier, 
+                        total: itemCost 
+                    });
+                } 
+                else if (category === 'CAMPING') {
+                    // Camping calculation (per unit of 5 person)
+                    unitCount = Math.ceil(pax / item.capacity);
+                    itemCost = item.price * unitCount;
+                    results[category].items.push({ 
+                        name: itemKey, 
+                        price: item.price, 
+                        unit_pax: item.capacity, 
+                        units: unitCount, 
+                        total: itemCost 
+                    });
+                }
+                else if (category === 'RAFTING') {
+                    // RAFTING calculation (complex)
+                    if (itemKey === 'Sewa Perahu') {
+                        unitCount = boatCount;
+                        itemCost = item.price * unitCount;
+                        results[category].items.push({ 
+                            name: itemKey, 
+                            price: item.price, 
+                            units: unitCount, 
+                            total: itemCost 
+                        });
+                    } else if (itemKey === 'Program Officer/Hospitality') {
+                        unitCount = 1; // Always 1
+                        itemCost = item.price * unitCount;
+                        results[category].items.push({ 
+                            name: itemKey, 
+                            price: item.price, 
+                            units: unitCount, 
+                            total: itemCost 
+                        });
+                    } else if (itemKey === 'Guide') {
+                        unitCount = boatCount; // 1 perahu
+                        itemCost = item.price * unitCount;
+                        results[category].items.push({ 
+                            name: itemKey, 
+                            price: item.price, 
+                            units: unitCount, 
+                            total: itemCost 
+                        });
+                    } else if (itemKey === 'Rescue') {
+                        unitCount = rescueCount;
+                        itemCost = item.price * unitCount;
+                        results[category].items.push({ 
+                            name: itemKey, 
+                            price: item.price, 
+                            units: unitCount, 
+                            total: itemCost 
+                        });
+                    } else if (itemKey === 'Pick up') {
+                        unitCount = Math.ceil(pax / item.capacity);
+                        itemCost = item.price * unitCount;
+                        results[category].items.push({ 
+                            name: itemKey, 
+                            price: item.price, 
+                            unit_pax: item.capacity, 
+                            units: unitCount, 
+                            total: itemCost 
+                        });
+                    } else if (itemKey === 'Porter') {
+                        // Porter: Harga/perahu, dikali boatCount
+                        unitCount = boatCount;
+                        itemCost = item.price * unitCount;
+                        results[category].items.push({ 
+                            name: itemKey, 
+                            price: item.price, 
+                            units: unitCount, 
+                            total: itemCost 
+                        });
+                    } else if (itemKey === 'Parkir') {
+                        unitCount = Math.ceil(pax / item.capacity);
+                        itemCost = item.price * unitCount;
+                        results[category].items.push({ 
+                            name: itemKey, 
+                            price: item.price, 
+                            unit_pax: item.capacity, 
+                            units: unitCount, 
+                            total: itemCost 
+                        });
+                    } else if (itemKey === 'Snack & Kelapa Muda') {
+                        unitCount = pax;
+                        itemCost = item.price * unitCount;
+                         results[category].items.push({ 
+                            name: itemKey, 
+                            price: item.price, 
+                            pax: pax, 
+                            total: itemCost 
+                        });
+                    }
+                }
+
+                if (itemCost > 0) {
+                    results[category].subtotal += itemCost;
+                    totalCost += itemCost;
+                }
+            }
+
+            // --- 3. FINANCIAL CALCULATION (Fee Structure) ---
+            const paxCount = pax;
+            const marginRate = 0.75;
+            const discountRate = 0.20;
+
+            // Group 1: Total Calculations
+            const totalHPP = totalCost;
+            const totalMargin = totalHPP * marginRate;
+            const totalNettPrice = totalHPP + totalMargin; // PRICE (HPP + MARGIN)
+            const totalGrossPublishPrice = totalNettPrice / (1 - discountRate); // PRICE + DISKON
+            const totalDiskon = totalGrossPublishPrice * discountRate;
+            const totalNettPriceCheck = totalGrossPublishPrice - totalDiskon; // NETT PRICE
+
+            // Group 2: Per Pax Calculations
+            const pricePerPaxRaw = totalGrossPublishPrice / paxCount;
+            const publishPricePerPaxRounded = roundUpToNearestTenK(pricePerPaxRaw); // PUBLISH PRICE/PAX
+
+            const diskonPerPax = publishPricePerPaxRounded * discountRate; // DISKON/PAX
+            const nettPricePerPaxRaw = publishPricePerPaxRounded - diskonPerPax; // NETT PRICE/PAX
+            const roundedNettPricePerPax = roundUpToNearestTenK(nettPricePerPaxRaw); // ROUNDED NETT PRICE/PAX
+
+            // New Calculations
+            const nettMarginFinal = (roundedNettPricePerPax * paxCount) - totalHPP;
+            const hargaPerOrang = roundedNettPricePerPax;
+            
+            // Simpan data finansial ke global object
+            currentFinancialData = {
+                totalHPP, totalMargin, totalNettPrice, totalGrossPublishPrice, totalDiskon, 
+                totalNettPriceCheck, pricePerPaxRaw, publishPricePerPaxRounded, diskonPerPax, 
+                nettPricePerPaxRaw, roundedNettPricePerPax, nettMarginFinal, hargaPerOrang
+            };
+            currentResultsData = results;
+
+            // --- 4. RENDERING OUTPUT ---
+
+            let outputHtml = '';
+
+            // Render Total Cost & Final Summary Table (Moved to the top)
+            let topSummaryHtml = `
+                <div class="hpp-total-display flex justify-between items-center bg-emerald-600 text-white p-4 rounded-xl mb-4 shadow-xl">
+                    <div class="text-lg font-medium">TOTAL HPP (Harga Pokok Penjualan)</div>
+                    <div id="total-cost-display" class="text-3xl font-bold">${formatRupiah(totalHPP)}</div>
+                </div>
+                <div class="mb-6">
+                    <table class="final-summary-table bg-white">
+                        <tbody>
+                            <tr class="bg-green-100 hover:bg-green-200">
+                                <td class="font-bold text-gray-800 w-1/2">NETT MARGIN</td>
+                                <td class="text-right font-extrabold text-green-700 w-1/2">${formatRupiah(nettMarginFinal)}</td>
+                            </tr>
+                            <tr class="bg-yellow-100 hover:bg-yellow-200">
+                                <td class="font-bold text-gray-800 w-1/2">HARGA PER ORANG</td>
+                                <td class="text-right font-extrabold text-orange-600 w-1/2">${formatRupiah(hargaPerOrang)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            // Insert the new top summary directly into the output div (it handles the total display now)
+            breakdownDiv.innerHTML = topSummaryHtml; 
+            
+            // Render HPP Breakdown details (below the top summary)
+            for (const catId in results) {
+                const cat = results[catId];
+                if (cat.items.length > 0) {
+                    outputHtml += `<div class="mb-6">`;
+                    outputHtml += `<h3 class="section-header text-lg mb-2">${cat.title.replace(' & MISCELLANEOUS', '')} (${formatRupiah(cat.subtotal)})</h3>`;
+                    outputHtml += `<div class="overflow-x-auto">`;
+                    outputHtml += `<table class="min-w-full text-sm text-left text-gray-700 bg-white rounded-lg shadow-inner">`;
+                    outputHtml += `<thead class="text-xs text-gray-800 uppercase bg-gray-100"><tr>`;
+                    outputHtml += `<th scope="col" class="px-3 py-2">No</th>`;
+                    outputHtml += `<th scope="col" class="px-3 py-2">Uraian</th>`;
+                    outputHtml += `<th scope="col" class="px-3 py-2 text-center">Unit / Kapasitas</th>`;
+                    outputHtml += `<th scope="col" class="px-3 py-2 text-center">Jml</th>`;
+                    outputHtml += `<th scope="col" class="px-3 py-2 text-right">Harga Satuan</th>`;
+                    outputHtml += `<th scope="col" class="px-3 py-2 text-right">Total Biaya</th>`;
+                    outputHtml += `</tr></thead><tbody>`;
+
+                    let itemNo = 1;
+                    for (const item of cat.items) {
+                        outputHtml += `<tr class="border-t border-gray-200 hover:bg-emerald-50">`;
+                        outputHtml += `<td class="px-3 py-2">${itemNo++}</td>`;
+                        outputHtml += `<td class="px-3 py-2">${item.name}</td>`;
+                        
+                        // Consolidated Unit / Capacity display
+                        let unitCapacityDisplay = '';
+                        if (catId === 'MEALS') {
+                             unitCapacityDisplay = `${item.pax} pax / ${item.times} waktu`;
+                        } else if (catId === 'CAMPING') {
+                            unitCapacityDisplay = `Kapasitas: ${item.unit_pax} person`;
+                        } else if (catId === 'RAFTING') {
+                            if (item.unit_pax) unitCapacityDisplay = `/ ${item.unit_pax} person`;
+                            else if (item.name === 'Porter' && item.units !== undefined) unitCapacityDisplay = `Perahu (${item.units} unit)`; // Khusus Porter
+                            else if (item.name === 'Snack & Kelapa Muda') unitCapacityDisplay = `(${item.pax} pax)`;
+                        }
+
+                        let unitsDisplay = '';
+                        if (item.units !== undefined) unitsDisplay = `${item.units} unit`;
+                        else if (item.pax !== undefined) unitsDisplay = `${item.pax} pax`;
+                        
+                        outputHtml += `<td class="px-3 py-2 text-center text-xs">${unitCapacityDisplay}</td>`;
+                        outputHtml += `<td class="px-3 py-2 text-center">${unitsDisplay}</td>`;
+                        
+                        outputHtml += `<td class="px-3 py-2 text-right">${formatRupiah(item.price)}</td>`;
+                        outputHtml += `<td class="px-3 py-2 text-right">${formatRupiah(item.total)}</td>`;
+                        outputHtml += `</tr>`;
+                    }
+
+                    outputHtml += `<tr class="bg-gray-200 font-bold"><td colspan="5" class="px-3 py-2 text-right">Sub Total ${cat.title.replace(' & MISCELLANEOUS', '')}</td><td class="px-3 py-2 text-right">${formatRupiah(cat.subtotal)}</td></tr>`;
+                    outputHtml += `</tbody></table></div></div>`;
+                }
+            }
+            
+            // Append HPP Breakdown details after the top summary
+            breakdownDiv.innerHTML += outputHtml;
+
+
+            // Render Financial Summary (Two Columns) (Stays in the original location)
+            let financialHtml = `
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+                <!-- Left Column: TOTAL PRICE CALCULATIONS -->
+                <div class="bg-blue-50 p-4 sm:p-6 rounded-xl border border-blue-200">
+                    <h3 class="text-base sm:text-xl font-bold text-blue-700 mb-3 border-b pb-2">A. Perhitungan Total Harga</h3>
+                    <div class="space-y-3">
+                        ${renderFinanceRow('HPP (Harga Pokok Penjualan)', formatRupiah(totalHPP), 'text-base font-bold text-red-600')}
+                        ${renderFinanceRow('MARGIN (75% dari HPP)', formatRupiah(totalMargin))}
+                        
+                        <div class="border-t border-dashed border-blue-300 pt-3"></div>
+                        
+                        ${renderFinanceRow('PRICE (HPP + MARGIN)', formatRupiah(totalNettPrice), 'text-base font-bold text-green-700')}
+                        
+                        <div class="border-t border-dashed border-blue-300 pt-3"></div>
+
+                        ${renderFinanceRow('PRICE + DISKON (Gross Publish Price)', formatRupiah(totalGrossPublishPrice))}
+                        ${renderFinanceRow('DISKON (20% dari Gross Price)', formatRupiah(totalDiskon), 'text-red-500')}
+                        ${renderFinanceRow('NETT PRICE (Total Jual Setelah Diskon)', formatRupiah(totalNettPriceCheck), 'text-base font-bold text-green-700')}
+                        ${renderFinanceRow('PUBLISH PRICE / PAX (Raw)', formatRupiah(pricePerPaxRaw), 'text-sm')}
+                    </div>
+                </div>
+
+                <!-- Right Column: PER PAX CALCULATIONS -->
+                <div class="bg-yellow-50 p-4 sm:p-6 rounded-xl border border-yellow-200">
+                    <h3 class="text-base sm:text-xl font-bold text-yellow-700 mb-3 border-b pb-2">B. Perhitungan Harga Per Peserta</h3>
+                    <div class="space-y-3">
+                        
+                        ${renderFinanceRow('PUBLISH PRICE/PAX (Raw Price)', formatRupiah(pricePerPaxRaw), 'text-sm text-gray-600')}
+                        <div class="border-t border-dashed border-yellow-300 pt-3"></div>
+
+                        ${renderFinanceRow('**PUBLISH PRICE/PAX (Dibulatkan)**', formatRupiah(publishPricePerPaxRounded), 'highlight-value text-lg text-orange-600 font-extrabold')}
+                        ${renderFinanceRow('DISKON (20% dari Publish Price/Pax)', formatRupiah(diskonPerPax), 'text-red-500')}
+                        ${renderFinanceRow('NETT PRICE/PAX (Raw)', formatRupiah(nettPricePerPaxRaw), 'text-sm text-gray-600')}
+                        
+                        <div class="border-t border-dashed border-yellow-300 pt-3"></div>
+                        
+                        ${renderFinanceRow('**ROUNDED NETT PRICE/PAX**', formatRupiah(roundedNettPricePerPax), 'highlight-value text-lg font-extrabold text-green-700')}
+                    </div>
+                </div>
+            </div>
+            `;
+            financialSummaryDiv.innerHTML = financialHtml;
+            
+            
+            outputDiv.classList.remove('hidden');
+
+        }
+        
+        // Helper function for rendering finance rows
+        function renderFinanceRow(label, value, className = '') {
+            return `
+            <div class="flex justify-between items-center text-sm">
+                <span class="text-gray-700">${label}</span>
+                <span class="${className}">${value}</span>
+            </div>
+            `;
+        }
+
+        // Initialize calculation on page load if inputs exist
+        window.onload = () => {
+             const inputs = document.querySelectorAll('#input-form input[type="number"], #input-form input[type="checkbox"]');
+             inputs.forEach(input => input.addEventListener('input', calculateCost));
+             calculateCost(); // Initial calculation
+        };
+
+        // Toggle checkbox style
+        function toggleCategory(id) {
+            const checkbox = document.getElementById(id);
+            checkbox.checked = !checkbox.checked;
+            const card = document.getElementById(`card-${id}`);
+            card.classList.toggle('active', checkbox.checked);
+            calculateCost();
+        }
+    </script>
 </head>
-<body>
-  <h1>Selamat Datang!</h1>
-<a href="https://g.co/gemini/share/c736d4f42844">Klik di sini</a>
+<body class="p-4 sm:p-8">
+
+    <div class="container">
+        <!-- Header -->
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-gray-800 border-b-4 border-emerald-500 pb-2 mb-3 sm:mb-0">Kalkulator Biaya Acara (Costing & Pricing)</h1>
+        </div>
+
+        <!-- Input Section -->
+        <div id="input-form" class="no-print bg-emerald-50 p-6 rounded-xl shadow-lg mb-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="md:col-span-1">
+                <label for="pax" class="block text-sm font-medium text-gray-700 mb-1">Jumlah Peserta (Pax)</label>
+                <input type="number" id="pax" value="7" min="1" class="w-full">
+            </div>
+            <div class="md:col-span-2 grid grid-cols-2 gap-4">
+                <div>
+                    <label for="days" class="block text-sm font-medium text-gray-700 mb-1">Durasi Hari (D)</label>
+                    <input type="number" id="days" value="2" min="1">
+                </div>
+                <div>
+                    <label for="nights" class="block text-sm font-medium text-gray-700 mb-1">Durasi Malam (N)</label>
+                    <input type="number" id="nights" value="1" min="0">
+                </div>
+            </div>
+
+            <div class="md:col-span-3">
+                <p class="text-sm font-semibold text-gray-700 mb-2">Pilih Kategori Acara:</p>
+                <div class="grid grid-cols-3 gap-4">
+                    <div id="card-include-meals" onclick="toggleCategory('include-meals')" class="category-toggle p-3 border-2 border-gray-300 rounded-xl text-center shadow-sm active">
+                        <input type="checkbox" id="include-meals" class="hidden" checked>
+                        <span class="font-bold text-gray-800 text-sm">MEALS</span>
+                    </div>
+                    <div id="card-include-camping" onclick="toggleCategory('include-camping')" class="category-toggle p-3 border-2 border-gray-300 rounded-xl text-center shadow-sm active">
+                        <input type="checkbox" id="include-camping" class="hidden" checked>
+                        <span class="font-bold text-gray-800 text-sm">CAMPING</span>
+                    </div>
+                    <div id="card-include-rafting" onclick="toggleCategory('include-rafting')" class="category-toggle p-3 border-2 border-gray-300 rounded-xl text-center shadow-sm active">
+                        <input type="checkbox" id="include-rafting" class="hidden" checked>
+                        <span class="font-bold text-gray-800 text-sm">RAFTING</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <p id="error-message" class="text-red-600 font-medium mb-4"></p>
+
+        <!-- Output Section (The content to be displayed) -->
+        <div id="output" class="hidden">
+            
+            <!-- HPP Total and Final Price Summary (Moved to the top) -->
+            <h2 class="text-xl sm:text-2xl font-bold text-gray-800 mb-4">Ringkasan HPP & Harga Jual Akhir</h2>
+            
+            <!-- Breakdown details will be inserted here, starting with the final table/total cost-->
+            <div id="breakdown" class="space-y-6"></div>
+            
+            <h2 class="text-xl sm:text-2xl font-bold text-gray-800 mt-10 mb-4">Rincian HPP Per Kategori</h2>
+
+            <!-- Financial Summary Section (Stays here) -->
+            <h2 class="text-xl sm:text-2xl font-bold text-gray-800 mt-10 mb-4">Ringkasan Penetapan Harga Jual</h2>
+            <div id="financial-summary">
+                 <!-- Financial summary will be inserted here -->
+            </div>
+
+            <!-- Footer for Logic Notes (Hide in print for cleaner PDF) -->
+            <div class="no-print mt-8 pt-4 border-t border-gray-200 text-xs text-gray-500">
+                <p class="font-semibold text-gray-700">Catatan Logika Perhitungan:</p>
+                <ul class="list-disc list-inside ml-2">
+                    <li>**Penetapan Harga:** Menggunakan asumsi bahwa NETT PRICE (HPP + MARGIN) adalah $80\%$ dari GROSS PUBLISH PRICE (sebelum diskon $20\%$ diterapkan).</li>
+                    <li>Pembulatan: Pembulatan ke puluhan ribu terdekat ke atas diterapkan pada **PUBLISH PRICE/PAX** dan **HARGA PER ORANG**.</li>
+                    <li>**Welcoming Snack & Drink** dihitung 1 kali per acara. Harga: Rp 5.000/person.</li>
+                    <li>Makan Malam, Snack Malam, Breakfast, Makan Siang dihitung dikali **jumlah malam (N)**.</li>
+                    <li>**Porter:** Dihitung **per perahu** (Rp 11.000/perahu).</li>
+                    <li>**Logika Rescue (Baru):** <ul class="list-circle ml-4">
+                            <li>Jika Guide (B) = 1 dan Pax bukan kelipatan $5+1$ (misal $P=1$ s/d $5$), maka Rescue = 1.</li>
+                            <li>Jika Guide (B) = 1 dan Pax adalah kelipatan $5+1$ (misal $P=6$), maka Rescue = 0 ($B-1$).</li>
+                            <li>Jika Guide (B) $>$ 1 (misal $P=7$ ke atas), maka Rescue = $B - 1$.</li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
