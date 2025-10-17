@@ -129,7 +129,8 @@
             'Makan Siang': { price: 18000, unit: 'person', multiplier: 'N', category: 'MEALS' }, // N times (Nights)
             
             // Kategori: CAMPING (Per unit)
-            'Tenda, Matras, Sleeping Bag': { price: 160000, capacity: 5, unit: 'unit', category: 'CAMPING' }, // / 5 person
+            // Diperbarui: 160000/4 person, dikali jumlah malam (N)
+            'Tenda, Matras, Sleeping Bag': { price: 160000, capacity: 4, unit: 'unit', multiplier: 'N', category: 'CAMPING' }, 
 
             // Kategori: RAFTING (Kompleks)
             'Sewa Perahu': { price: 200000, capacity: 6, unit: 'unit_boat', category: 'RAFTING' }, // / 6 person (for B)
@@ -238,14 +239,22 @@
                     });
                 } 
                 else if (category === 'CAMPING') {
-                    // Camping calculation (per unit of 5 person)
-                    unitCount = Math.ceil(pax / item.capacity);
-                    itemCost = item.price * unitCount;
+                    // Camping calculation (per unit of X person, multiplied by N nights)
+                    
+                    // 1. Calculate number of units needed (ceil(pax / capacity))
+                    const neededUnits = Math.ceil(pax / item.capacity);
+                    
+                    // 2. Calculate the total cost (units * price * nights)
+                    unitCount = neededUnits; // for display purposes
+                    const timeMultiplier = nights;
+                    itemCost = item.price * neededUnits * timeMultiplier;
+
                     results[category].items.push({ 
                         name: itemKey, 
                         price: item.price, 
                         unit_pax: item.capacity, 
-                        units: unitCount, 
+                        units: neededUnits, 
+                        times: timeMultiplier,
                         total: itemCost 
                     });
                 }
@@ -422,19 +431,22 @@
                         
                         // Consolidated Unit / Capacity display
                         let unitCapacityDisplay = '';
+                        let unitsDisplay = '';
+
                         if (catId === 'MEALS') {
                              unitCapacityDisplay = `${item.pax} pax / ${item.times} waktu`;
+                             unitsDisplay = `${item.pax * item.times} porsi`;
                         } else if (catId === 'CAMPING') {
-                            unitCapacityDisplay = `Kapasitas: ${item.unit_pax} person`;
+                            unitCapacityDisplay = `Kapasitas: ${item.unit_pax} person / malam`;
+                            unitsDisplay = `${item.units} unit x ${item.times} malam`;
                         } else if (catId === 'RAFTING') {
                             if (item.unit_pax) unitCapacityDisplay = `/ ${item.unit_pax} person`;
                             else if (item.name === 'Porter' && item.units !== undefined) unitCapacityDisplay = `Perahu (${item.units} unit)`; // Khusus Porter
                             else if (item.name === 'Snack & Kelapa Muda') unitCapacityDisplay = `(${item.pax} pax)`;
-                        }
 
-                        let unitsDisplay = '';
-                        if (item.units !== undefined) unitsDisplay = `${item.units} unit`;
-                        else if (item.pax !== undefined) unitsDisplay = `${item.pax} pax`;
+                            if (item.units !== undefined) unitsDisplay = `${item.units} unit`;
+                            else if (item.pax !== undefined) unitsDisplay = `${item.pax} pax`;
+                        }
                         
                         outputHtml += `<td class="px-3 py-2 text-center text-xs">${unitCapacityDisplay}</td>`;
                         outputHtml += `<td class="px-3 py-2 text-center">${unitsDisplay}</td>`;
@@ -599,6 +611,7 @@
                     <li>**Penetapan Harga:** Menggunakan asumsi bahwa NETT PRICE (HPP + MARGIN) adalah $80\%$ dari GROSS PUBLISH PRICE (sebelum diskon $20\%$ diterapkan).</li>
                     <li>Pembulatan: Pembulatan ke puluhan ribu terdekat ke atas diterapkan pada **PUBLISH PRICE/PAX** dan **HARGA PER ORANG**.</li>
                     <li>**Welcoming Snack & Drink** dihitung 1 kali per acara. Harga: Rp 5.000/person.</li>
+                    <li>**Kamping (Tenda, Matras, SB):** Dihitung per **malam (N)** dengan kapasitas **4 orang** per unit.</li>
                     <li>Makan Malam, Snack Malam, Breakfast, Makan Siang dihitung dikali **jumlah malam (N)**.</li>
                     <li>**Porter:** Dihitung **per perahu** (Rp 11.000/perahu).</li>
                     <li>**Logika Rescue (Baru):** <ul class="list-circle ml-4">
